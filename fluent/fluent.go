@@ -203,16 +203,24 @@ func (f *Fluent) close() (err error) {
 }
 
 // connect establishes a new connection using the specified transport.
-func (f *Fluent) connect() (err error) {
+func (f *Fluent) connect() error {
 	switch f.Config.FluentNetwork {
 	case "tcp":
-		f.conn, err = net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentHost+":"+strconv.Itoa(f.Config.FluentPort), f.Config.Timeout)
+		conn, err := net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentHost+":"+strconv.Itoa(f.Config.FluentPort), f.Config.Timeout)
+		if err != nil {
+			return err
+		}
+		f.conn = conn
 	case "unix":
-		f.conn, err = net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentSocketPath, f.Config.Timeout)
+		conn, err := net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentSocketPath, f.Config.Timeout)
+		if err != nil {
+			return err
+		}
+		f.conn = conn
 	default:
-		err = net.UnknownNetworkError(f.Config.FluentNetwork)
+		return net.UnknownNetworkError(f.Config.FluentNetwork)
 	}
-	return
+	return nil
 }
 
 func e(x, y float64) int {
