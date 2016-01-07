@@ -71,7 +71,7 @@ func New(config Config) (f *Fluent, err error) {
 		config.MaxRetry = defaultMaxRetry
 	}
 	f = &Fluent{Config: config, reconnecting: false}
-	err = f.connect()
+	f.conn, err = f.getConnection()
 	return
 }
 
@@ -189,12 +189,8 @@ func (f *Fluent) Close() (err error) {
 
 // close closes the connection.
 func (f *Fluent) close() (err error) {
-	if f.conn != nil {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-	} else {
-		return
-	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.conn != nil {
 		f.conn.Close()
 		f.conn = nil
@@ -202,17 +198,16 @@ func (f *Fluent) close() (err error) {
 	return
 }
 
-// connect establishes a new connection using the specified transport.
-func (f *Fluent) connect() (err error) {
+// get a new connection using the specified transport.
+func (f *Fluent) getConnection() (net.Conn, error) {
 	switch f.Config.FluentNetwork {
 	case "tcp":
-		f.conn, err = net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentHost+":"+strconv.Itoa(f.Config.FluentPort), f.Config.Timeout)
+		return net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentHost+":"+strconv.Itoa(f.Config.FluentPort), f.Config.Timeout)
 	case "unix":
-		f.conn, err = net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentSocketPath, f.Config.Timeout)
+		return net.DialTimeout(f.Config.FluentNetwork, f.Config.FluentSocketPath, f.Config.Timeout)
 	default:
-		err = net.UnknownNetworkError(f.Config.FluentNetwork)
+		return nil, net.UnknownNetworkError(f.Config.FluentNetwork)
 	}
-	return
 }
 
 func e(x, y float64) int {
@@ -222,9 +217,10 @@ func e(x, y float64) int {
 func (f *Fluent) reconnect() {
 	go func() {
 		for i := 0; ; i++ {
-			err := f.connect()
+			conn, err := f.getConnection()
 			if err == nil {
 				f.mu.Lock()
+				f.conn = conn
 				f.reconnecting = false
 				f.mu.Unlock()
 				break
@@ -246,16 +242,17 @@ func (f *Fluent) flushBuffer() {
 }
 
 func (f *Fluent) send() (err error) {
+	f.mu.Lock()
 	if f.conn == nil {
 		if f.reconnecting == false {
-			f.mu.Lock()
 			f.reconnecting = true
 			f.mu.Unlock()
 			f.reconnect()
+		} else {
+			f.mu.Unlock()
 		}
 		err = errors.New("fluent#send: can't send logs, client is reconnecting")
 	} else {
-		f.mu.Lock()
 		_, err = f.conn.Write(f.pending)
 		f.mu.Unlock()
 	}
